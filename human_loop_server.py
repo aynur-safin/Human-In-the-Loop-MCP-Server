@@ -63,6 +63,15 @@ def get_text_font():
     else:
         return ("Ubuntu Mono", 10)  # Linux monospace font
 
+def get_scrollbar_width():
+    """Get scrollbar width appropriate for the platform"""
+    if IS_WINDOWS:
+        return 16
+    elif IS_MACOS:
+        return 14
+    else:
+        return 12
+
 def get_theme_colors():
     """Get modern theme colors based on platform"""
     if IS_WINDOWS:
@@ -179,6 +188,86 @@ def apply_modern_style(widget, widget_type="default", theme_colors=None):
     except Exception:
         pass  # Ignore styling errors on different platforms
 
+def create_scrollable_message_area(parent, message, theme_colors, height=6):
+    """Create a scrollable, read-only message area for long text."""
+    container = tk.Frame(parent, bg=theme_colors["bg_primary"])
+    container.columnconfigure(0, weight=1)
+    container.rowconfigure(0, weight=1)
+
+    text_widget = tk.Text(
+        container,
+        height=height,
+        wrap="word",
+        padx=12,
+        pady=8,
+        borderwidth=1,
+        relief="solid"
+    )
+    text_widget.configure(
+        bg=theme_colors["bg_primary"],
+        fg=theme_colors["fg_secondary"],
+        font=get_system_font(),
+        highlightthickness=1,
+        highlightcolor=theme_colors["accent_color"],
+        highlightbackground=theme_colors["border_color"],
+        selectbackground=theme_colors["selection_bg"],
+        selectforeground=theme_colors["selection_fg"],
+        insertbackground=theme_colors["fg_secondary"]
+    )
+    text_widget.insert("1.0", message)
+    text_widget.configure(
+        cursor="arrow",
+        insertwidth=0
+    )
+
+    def focus_text(event=None):
+        text_widget.focus_set()
+
+    def copy_selection(event=None):
+        try:
+            selection = text_widget.selection_get()
+        except tk.TclError:
+            return "break"
+        text_widget.clipboard_clear()
+        text_widget.clipboard_append(selection)
+        return "break"
+
+    def block_edit(event):
+        allowed_keys = {
+            "Left", "Right", "Up", "Down",
+            "Home", "End", "Prior", "Next"
+        }
+        keysym = event.keysym
+        if keysym in allowed_keys:
+            return
+        # Allow selection shortcuts
+        if (event.state & 0x4) and keysym.lower() in {"c", "a", "insert"}:
+            return
+        return "break"
+
+    text_widget.bind("<Button-1>", focus_text)
+    text_widget.bind("<Key>", block_edit)
+    text_widget.bind("<<Paste>>", lambda e: "break")
+    text_widget.bind("<<Cut>>", lambda e: "break")
+    text_widget.bind("<Control-c>", copy_selection)
+    text_widget.bind("<Control-C>", copy_selection)
+    if IS_MACOS:
+        text_widget.bind("<Command-c>", copy_selection)
+
+    scrollbar = tk.Scrollbar(
+        container,
+        orient="vertical",
+        command=text_widget.yview,
+        width=get_scrollbar_width()
+    )
+    apply_modern_style(scrollbar, "scrollbar", theme_colors)
+    text_widget.configure(yscrollcommand=scrollbar.set)
+
+    text_widget.grid(row=0, column=0, sticky="nsew", padx=(0, 2))
+    scrollbar.grid(row=0, column=1, sticky="ns")
+
+    return container, text_widget
+
 def create_modern_button(parent, text, command, button_type="primary", theme_colors=None):
     """Create a modern styled button"""
     if theme_colors is None:
@@ -202,8 +291,8 @@ def create_modern_button(parent, text, command, button_type="primary", theme_col
         font=get_system_font(),
         relief="flat",
         borderwidth=0,
-        padx=20,
-        pady=8,
+        padx=52,
+        pady=10,
         cursor="hand2" if IS_WINDOWS else "pointinghand"
     )
     
@@ -347,16 +436,16 @@ class ModernInputDialog:
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(title)
         self.dialog.grab_set()
-        self.dialog.resizable(False, False)
+        self.dialog.resizable(True, True)
         
         # Apply modern window styling
         configure_modern_window(self.dialog)
         
         # Set size based on platform
         if IS_WINDOWS:
-            self.dialog.geometry("420x280")
+            self.dialog.geometry("520x420")
         else:
-            self.dialog.geometry("400x260")
+            self.dialog.geometry("500x400")
         
         self.center_window()
         
@@ -375,18 +464,14 @@ class ModernInputDialog:
         )
         title_label.pack(fill="x", pady=(0, 8))
         
-        # Prompt label
-        prompt_label = tk.Label(
+        # Scrollable prompt area (copyable)
+        prompt_frame, _ = create_scrollable_message_area(
             main_frame,
-            text=prompt,
-            bg=self.theme_colors["bg_primary"],
-            fg=self.theme_colors["fg_secondary"],
-            font=get_system_font(),
-            wraplength=350,
-            justify="left",
-            anchor="w"
+            prompt,
+            self.theme_colors,
+            height=12
         )
-        prompt_label.pack(fill="x", pady=(0, 20))
+        prompt_frame.pack(fill="both", pady=(0, 16))
         
         # Input field
         input_frame = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"])
@@ -484,16 +569,17 @@ class ModernConfirmationDialog:
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(title)
         self.dialog.grab_set()
-        self.dialog.resizable(False, False)
+        self.dialog.resizable(True, True)
         
         # Apply modern window styling
         configure_modern_window(self.dialog)
         
         # Set size based on content
         if IS_WINDOWS:
-            self.dialog.geometry("440x220")
+            self.dialog.geometry("540x340")
         else:
-            self.dialog.geometry("420x200")
+            self.dialog.geometry("520x320")
+        self.dialog.minsize(420, 240)
         
         self.center_window()
         
@@ -512,18 +598,14 @@ class ModernConfirmationDialog:
         )
         title_label.pack(fill="x", pady=(0, 12))
         
-        # Message label
-        message_label = tk.Label(
+        # Scrollable message area (prevents oversized windows on long text)
+        message_frame, _ = create_scrollable_message_area(
             main_frame,
-            text=message,
-            bg=self.theme_colors["bg_primary"],
-            fg=self.theme_colors["fg_secondary"],
-            font=get_system_font(),
-            wraplength=370,
-            justify="left",
-            anchor="w"
+            message,
+            self.theme_colors,
+            height=6
         )
-        message_label.pack(fill="x", pady=(0, 24))
+        message_frame.pack(fill="both", expand=True, pady=(0, 24))
         
         # Button frame
         button_frame = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"])
@@ -587,16 +669,17 @@ class ModernInfoDialog:
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(title)
         self.dialog.grab_set()
-        self.dialog.resizable(False, False)
+        self.dialog.resizable(True, True)
         
         # Apply modern window styling
         configure_modern_window(self.dialog)
         
         # Set size based on content
         if IS_WINDOWS:
-            self.dialog.geometry("420x200")
+            self.dialog.geometry("540x340")
         else:
-            self.dialog.geometry("400x180")
+            self.dialog.geometry("520x320")
+        self.dialog.minsize(420, 240)
         
         self.center_window()
         
@@ -615,18 +698,14 @@ class ModernInfoDialog:
         )
         title_label.pack(fill="x", pady=(0, 12))
         
-        # Message label
-        message_label = tk.Label(
+        # Scrollable message area (prevents oversized windows on long text)
+        message_frame, _ = create_scrollable_message_area(
             main_frame,
-            text=message,
-            bg=self.theme_colors["bg_primary"],
-            fg=self.theme_colors["fg_secondary"],
-            font=get_system_font(),
-            wraplength=350,
-            justify="left",
-            anchor="w"
+            message,
+            self.theme_colors,
+            height=7
         )
-        message_label.pack(fill="x", pady=(0, 24))
+        message_frame.pack(fill="both", expand=True, pady=(0, 24))
         
         # Button frame
         button_frame = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"])
@@ -696,32 +775,6 @@ def create_multiline_input_dialog(title: str, prompt: str, default_value: str = 
         print(f"Error in multiline dialog: {e}")
         return None
 
-def show_confirmation(title: str, message: str):
-    """Show confirmation dialog"""
-    try:
-        root = tk.Tk()
-        root.withdraw()
-        configure_window_for_platform(root)
-        result = messagebox.askyesno(title, message, parent=root)
-        root.destroy()
-        return result
-    except Exception as e:
-        print(f"Error in confirmation dialog: {e}")
-        return False
-
-def show_info(title: str, message: str):
-    """Show info dialog"""
-    try:
-        root = tk.Tk()
-        root.withdraw()
-        configure_window_for_platform(root)
-        messagebox.showinfo(title, message, parent=root)
-        root.destroy()
-        return True
-    except Exception as e:
-        print(f"Error in info dialog: {e}")
-        return False
-
 class ChoiceDialog:
     def __init__(self, parent, title, prompt, choices, allow_multiple=False):
         self.result = None
@@ -754,7 +807,7 @@ class ChoiceDialog:
         
         # Configure grid weights
         main_frame.columnconfigure(0, weight=1)
-        main_frame.rowconfigure(1, weight=1)
+        main_frame.rowconfigure(2, weight=1)
         
         # Add modern title label
         title_label = tk.Label(
@@ -767,18 +820,14 @@ class ChoiceDialog:
         )
         title_label.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         
-        # Add prompt label with modern styling
-        prompt_label = tk.Label(
+        # Add scrollable prompt area (copyable)
+        prompt_frame, _ = create_scrollable_message_area(
             main_frame,
-            text=prompt,
-            bg=self.theme_colors["bg_primary"],
-            fg=self.theme_colors["fg_secondary"],
-            font=get_system_font(),
-            wraplength=450,
-            justify="left",
-            anchor="w"
+            prompt,
+            self.theme_colors,
+            height=12
         )
-        prompt_label.grid(row=1, column=0, sticky="ew", pady=(0, 20))
+        prompt_frame.grid(row=1, column=0, sticky="ew", pady=(0, 20))
         
         # Create choice selection widget with modern container
         list_container = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"])
@@ -799,7 +848,12 @@ class ChoiceDialog:
         self.listbox.grid(row=0, column=0, sticky="nsew", padx=(0, 2))
         
         # Modern scrollbar
-        scrollbar = tk.Scrollbar(list_container, orient="vertical", command=self.listbox.yview)
+        scrollbar = tk.Scrollbar(
+            list_container,
+            orient="vertical",
+            command=self.listbox.yview,
+            width=get_scrollbar_width()
+        )
         apply_modern_style(scrollbar, "scrollbar", self.theme_colors)
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.listbox.configure(yscrollcommand=scrollbar.set)
@@ -916,18 +970,14 @@ class MultilineInputDialog:
         )
         title_label.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         
-        # Add prompt label with modern styling
-        prompt_label = tk.Label(
+        # Add scrollable prompt area (copyable)
+        prompt_frame, _ = create_scrollable_message_area(
             main_frame,
-            text=prompt,
-            bg=self.theme_colors["bg_primary"],
-            fg=self.theme_colors["fg_secondary"],
-            font=get_system_font(),
-            wraplength=520,
-            justify="left",
-            anchor="w"
+            prompt,
+            self.theme_colors,
+            height=12
         )
-        prompt_label.grid(row=1, column=0, sticky="ew", pady=(0, 20))
+        prompt_frame.grid(row=1, column=0, sticky="ew", pady=(0, 20))
         
         # Create text widget container with modern styling
         text_container = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"])
@@ -941,7 +991,12 @@ class MultilineInputDialog:
         self.text_widget.grid(row=0, column=0, sticky="nsew", padx=(0, 2))
         
         # Modern scrollbar for text widget
-        text_scrollbar = tk.Scrollbar(text_container, orient="vertical", command=self.text_widget.yview)
+        text_scrollbar = tk.Scrollbar(
+            text_container,
+            orient="vertical",
+            command=self.text_widget.yview,
+            width=get_scrollbar_width()
+        )
         apply_modern_style(text_scrollbar, "scrollbar", self.theme_colors)
         text_scrollbar.grid(row=0, column=1, sticky="ns")
         self.text_widget.configure(yscrollcommand=text_scrollbar.set)
@@ -1309,15 +1364,14 @@ async def show_info_message(
 
 # Add a prompt to get prompting guidance for LLMs
 @mcp.prompt()
-async def get_human_loop_prompt() -> Dict[str, str]:
+async def get_human_loop_prompt() -> str:
     """
     Get prompting guidance for LLMs on when and how to use human-in-the-loop tools.
-    
-    This tool returns comprehensive guidance that helps LLMs understand when to pause
-    and ask for human input, decisions, or feedback during task execution.
+
+    This prompt returns a single, structured guidance message. FastMCP prompts must
+    return either a string, a list of Message objects, or a PromptResult.
     """
-    guidance = {
-        "main_prompt": """
+    main_prompt = """
 You have access to Human-in-the-Loop tools that allow you to interact directly with users through GUI dialogs. Use these tools strategically to enhance task completion and user experience.
 
 **WHEN TO USE HUMAN-IN-THE-LOOP TOOLS:**
@@ -1341,9 +1395,9 @@ You have access to Human-in-the-Loop tools that allow you to interact directly w
 - Use confirmation dialogs before destructive actions
 - Give status updates for long-running processes
 - Offer meaningful choices rather than overwhelming options
-- Be concise but informative in dialog prompts""",
-        
-        "usage_examples": """
+- Be concise but informative in dialog prompts"""
+
+    usage_examples = """
 **EXAMPLE SCENARIOS:**
 
 1. **File Operations:**
@@ -1364,9 +1418,9 @@ You have access to Human-in-the-Loop tools that allow you to interact directly w
 4. **Data Processing:**
    - "Found 3 data formats. Which should I use?" (choice)
    - "Enter the date range (YYYY-MM-DD to YYYY-MM-DD):" (input)
-   - "Processing complete. 1,250 records updated." (info message)""",
-        
-        "decision_framework": """
+   - "Processing complete. 1,250 records updated." (info message)"""
+
+    decision_framework = """
 **DECISION FRAMEWORK FOR HUMAN-IN-THE-LOOP:**
 
 ASK YOURSELF:
@@ -1381,9 +1435,9 @@ OPTIMIZE FOR USER EXPERIENCE:
 - Batch related questions together when possible
 - Provide context for why you need the information
 - Offer sensible defaults and suggestions
-- Make dialogs self-explanatory and actionable""",
-        
-        "integration_tips": """
+- Make dialogs self-explanatory and actionable"""
+
+    integration_tips = """
 **INTEGRATION TIPS:**
 
 1. **Workflow Integration:**
@@ -1409,9 +1463,13 @@ OPTIMIZE FOR USER EXPERIENCE:
    - Explain why you need user input
    - Show progress and intermediate results
    - Confirm successful completion of user-guided actions"""
-    }
-    
-    return guidance
+
+    return (
+        f"{main_prompt}\n\n"
+        f"{usage_examples}\n\n"
+        f"{decision_framework}\n\n"
+        f"{integration_tips}"
+    )
 
 # Add a health check tool
 @mcp.tool()
